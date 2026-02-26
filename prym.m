@@ -9,8 +9,8 @@ if not assigned P and not assigned Kstr then
     print "  pnum (val is a positive integer bound on the number of odd bad primes allowed; default is 5)";
     print "  radminp (val is a positive integer (strict) lower bound on the primes to ignore when applying radmax; default is 1)";
     print "  radmax (val is a positive integer bounding the product of primes > radminp; default is 2^19)";
-    print "  Nmax (val is a positive integer bound on the conductor of elliptic curves to consider; default is 1000)";
-    print "  Dmax (val is a positive integer bound on the absolute value of the discriminant of number fields to consider; default is 10000)";
+    print "  Nmax (val is a positive integer bound on the conductor of elliptic curves to consider; default is 1000, ignored when Estr is specified)";
+    print "  Dmax (val is a positive integer bound on the absolute value of the discriminant of number fields to consider; default is 10000, ignored when Kstr is specified)";
     print "  Efile (val is the name of a file of elliptic curves E to use, with rows N:[a1,a2,a3,a4,a6], where N is the conductor of E;";
     print "         default is to use all E/Q of conductor <= min(Nmax,500000) (the Cremona DB is included in Magma)";
     print "  Kfile (val is the name of a file of number fields K to use, with rows D:[f0,f1,...fd], where D=|disc(K)| and K=Q[x]/(f0+f1*x+...+fd*x^d);";
@@ -23,7 +23,7 @@ if not assigned P and not assigned Kstr then
     print "  cnum (val is a positive integer bound on the maximum number of point combinations to try; default is 5^6)";
     print "  cbound (val is a positive integer bound on the absolute value of integer coefficients used in point combinations; default is 5)";
     print "  jobs (val is a positive integer n specifying that this command is one of n jobs; default is 1)";
-    print "  jobid (val is an integer in [0,n-1] specifying which job this is (automatically reduced modulo jobs); default is 0)";
+    print "  jobid (val is an integer in [0,n-1] specifying which job this is; default is 0)";
     print "  verbose (val is a nonnegative integer specifying the verbosity level from 0 to 2; default is 0)";
     print "  Edump (val is 0 or 1; default 0, if 1 outputs a file N:[a1,a2,a3,a4,a6] for E matching bad prime criteria)";
     print "  Kdump (val is 0 or 1; default 0, if 1 outputs a file D:[f0,...,fd] for K matching bad (ramified) prime criteria)";
@@ -212,7 +212,7 @@ for Estr in Es do // for each elliptic curve E
 			assert rK ge r;
 		else
 			if assigned EKdump and EKdump ne "0" then
-				print Sprintf("%o:%o:%.3os",jobid,Estr,Kstr,Cputime()-Kstart);
+				print Sprintf("%o:%o:%o:%.3os",jobid,Estr,Kstr,Cputime()-Kstart);
 				continue;
 			end if;
 			MW_K := [ EK | phi(g) : g in Generators(MW)];
