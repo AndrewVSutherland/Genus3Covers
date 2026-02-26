@@ -1,54 +1,113 @@
-verbose := assigned verbose select atoi(verbose) else 0;
-split := assigned split select atoi(split) else 0;
-if assigned Kstr then assert assigned Estr; single := true; else single := false; end if;
+// depends on utils.m, g3cover.m
+Attach("g3cover.m");
+
+if not assigned P and not assigned Kstr then
+	print "usage: magma -b arg:=val ... prym.m\n";
+    print "Supported values of arg include:\n";
+    print "  P (val is a bad prime bound or list of bad primes allowed; this is required unless Estr and Kstr are both specified)";
+    print "  pnum (val is a positive integer found on the number of odd bad primes allowed; default is 5)";
+    print "  radminp (val is a positive integer (strict) lower bound on the primes to ignore when applying radmax; default is 1)";
+    print "  radmax (val is a positive integer bounding the product of primes > radminp; default is 2^19)";
+    print "  Nmax (val is a positive integer bound on the conductor of elliptic curves to consider; default 1000)";
+    print "  Dmax (val is a positive integer bound on the absolute value of the discriminant of number fields to consider; default 10000)";
+    print "  Efile (val is the name of a file of elliptic curves E to use, with rows N:[a1,a2,a3,a4,a6], where N is the conductor of E;";
+    print "         default is curves in the Cremona database or the file lmfdb_prym_ec.txt, which includes all E/Q with good reduction at all p>7)";
+    print "  Kfile (val is the name of a file of number fields K to use, with rows D:[f0,f1,...fd], where D=|disc(K)| and K=Q[x]/(f0+f1*x+...+fd*x^d);";
+    print "         default is to use number fields listed in the file lmfdb_prym_nf.txt, which includes number field of degree <= 4 with |disc(K)|<=2^20)";
+    print "  Estr (val is a string \"N:[a1,a2,a3,a4,a6]\" specifying the elliptic curve E to use, where N is the conductor)";
+    print "  Kstr (val is a string \"D:[f0,f1,...,fd]\" specifying the number field K=Q[x]/(f0+f1*x+...+fd*x^d) to use, where D=|disc(K)|)";
+    print "  cnum (val is a positive integer bound on the maximum number of point combinations to try; default is 5^6)";
+    print "  cbound (val is a positive integer bound on the absolute value of integer cofficients used in point combinations; default is 5)";
+    print "  jobs (val is a positive integer n specifying that this command is one of n jobs; default is 1)";
+    print "  jobid (val is an integer in [0,n-1] specifying which job this (will be reduced mod jobs); default is 0)";
+    print "  verbose (val is a nonnegative integer specifying the verbosity level from 0 to 2; default is 0)";
+    print "  Edump (val is 0 or 1, with 1 indicating output should simply be a file N:[a1,a2,a3,a4,a6] for E matching bad prime criteria)";
+    print "  Kdump (val is 0 or 1, with 1 indicating output should simply be a file D:[f0,...,fd] for K matching bad (ramified) prime criteria)";
+    print "  EKdump (val is 0 or 1, with 1 indicating output should simply be a file N:[a1,a2,a3,a4,a6]:D:[f0,f1,...,fd]:r:rK for each pair E,K with r<rK)";
+    print "";
+	exit;
+end if;
+
 jobs := assigned jobs select atoi(jobs) else 1;
 jobid := assigned jobid select atoi(jobid) else 0;
 Nmax := assigned Nmax select atoi(Nmax) else 1000;
 Dmax := assigned Dmax select atoi(Dmax) else 10000;
+if assigned Kstr then
+	assert assigned Estr;
+	if not assigned P then P := sprint(PrimeDivisors(atoi(Split(Estr,":")[1])) cat PrimeDivisors(atoi(Split(Kstr,":")[1]))); end if;
+end if;
 Pstr := assigned P select P else "[2]";
 P := assigned P select (P[1] eq "[" select atoii(P) else PrimesInInterval(1,atoi(P))) else [2];
-c_bound := assigned cbound select atoi(cbound) else 5;
-c_num := assigned cnum select atoi(cnum) else 15625;
-radmax := assigned radmax select atoi(radmax) else 2^20;
-p_allowed := {p:p in P| p le radmax};
-p_max := Max(p_allowed);
-p_maxproduct := Min(&*p_allowed,radmax);
-p_maxnumber := Min(#p_allowed,5);
+P := Sort([p:p in Set(P)]); assert &and[IsPrime(p):p in P];
+cbound := assigned cbound select atoi(cbound) else 5;
+cnum := assigned cnum select atoi(cnum) else 19683;
+radminp := assigned radminp select atoi(radminp) else 1;
+if radminp lt 1 then radminp := 1; end if;
+radmax := assigned radmax select atoi(radmax) else Floor(2^20/radminp);
+pmax := Max(P);
+pnum := assigned pnum select atoi(pnum) else 5;
+verbose := assigned verbose select atoi(verbose) else 0;
 
 pmaxval := func<p|p eq 2 select 20 else (p eq 3 select 10 else (p eq 5 select 9 else 4))>;
 
-nf_file := "lmfdb_prym_nf.txt";	// Sorted list of number fields |D|:[f_0,f_1,...,f_{d-1},1] over which to look for branch points
-ec_file := "lmfdb_prym_ec.txt"; // list of elliptic curves N:[a1,a2,a3,a4,a6] not in Cremona database to use as base
+nf_file := "lmfdb_prym_nf.txt";	// Sorted list of number fields |D|:[f_0,f_1,...,f_{d-1},1] of degree <= 4 over which to look for branch points
+ec_file := "lmfdb_prym_ec.txt"; // list of elliptic curves N:[a1,a2,a3,a4,a6] not already in the Cremona database to use
 
-// (TODO): biquadratic case, geometrically hyperelliptic curves, twisting
 U<x,y,z> := PolynomialRing(Rationals(), 3);
 
-B_pt := AssociativeArray(); B_pt[2] := 100; B_pt[3] := 50; B_pt[4] := 25;	// Upper bound for EC point search, dependending on the degree of the field.
-B_sat := 10;	// Upper bound for saturation step.
+// B_pt holds upper bounds for EC point search, dependending on the degree of the field.
+B_pt := AssociativeArray(); B_pt[2] := 100; B_pt[3] := 50; B_pt[4] := 25;
+B_sat := 10;				// Upper bound on primes used in saturation step.
+Amax := 2^20;				// Upper bound on target conductors of Prym (we skip covers we can prove exceed this)
+Cmax := 2000;				// Upper bound (in characters) on size of equations/invariants appearing in covers
+							// Only relevant for hyperelliptic curves, used to avoid spending time on computations
 
-function S_comb(L) // Coefficients c_i to try for linear combinations \sum c_i P_i where P_i are points on the elliptic curve, as a function of the number of generators.
-	// This function takes as input a list of curves and outputs a list of sets for the coefficients c_i. (This is, so that for a point of order n we can take {0..n-1} rather than the larger default interval if n is small.
-	b := c_bound+1;
+// Helper functions S_comb and T_comb below select coefficients c_i for integer linear combinations \sum c_i P_i that will be used
+// to select ramification points.  Each P_i listed in L should be a (possibly torsion) generator of the MW group of E or its base change to K.
+// We adjust cbound on the integers c_i depending on the number of generators to keep the number of combinations below cnum,
+// but we will never drop the bound below 1 (which may mean more than cnum combinations when the number of generators is large)
+function S_comb(L)
+	b := cbound+1;
 	repeat
 		b -:= 1;
-		c := [ (ord eq 0) or (ord gt 2*b) select {-b..b} else {0..ord-1} where ord := Order(P) : P in L ];
-	until b eq 1 or #CartesianProduct(c) le c_num;
+		if b eq 0 then
+			c := [{0..1}:P in L];
+		else
+			c := [(ord eq 0) or (ord gt 2*b) select {-b..b} else {0..ord-1} where ord := Order(P) : P in L ];
+		end if;
+	until b eq 0 or #CartesianProduct(c) le cnum;
 	return CartesianProduct(c);
 end function;
 
+// T_comb is used for the case K=Q, where we will be choosing 3 points on E and we want to avoid duplicating choices
 function T_comb(L)
-	b := c_bound+1;
+	b := cbound+1;
 	repeat
 		b -:= 1;
 		c := [ (ord eq 0) or (ord gt 2*b) select {0..b} else {0..ord-1} where ord := Order(P) : P in L ];
-	until b eq 1 or Binomial(#CartesianProduct(c),3) le c_num;
+	until b eq 1 or Binomial(#CartesianProduct(c),3) le cnum;
 	return Subsets(Set(CartesianProduct(c)),3);
 end function;
+
+function PickEvenModel(L,E)
+    EE := [ReducedMinimalWeierstrassModel(Genus1CurveFromEvenModel(C)):C in L];
+    I := [j:j in [1..#EE]];
+    I := ReduceToReps(I,func<j,k|IsIsomorphic(EE[j],EE[k])>);
+    D := LCM([Integers()|Discriminant(EE[j]):j in I] cat [Integers()!Discriminant(E)]);
+    p := 2;
+    while p lt 256 and #I gt 1 do
+        p := NextPrime(p);
+        if D mod p eq 0 then continue; end if;
+        F := GF(p); n := #RationalPoints(ChangeRing(E,F));
+        I := [j:j in I|#RationalPoints(ChangeRing(EE[j],F)) eq n];
+    end while;
+    return L[1];
+end function;
+
 field_degrees := {1,2,3,4};	// Allowable degrees for ramification points (may cause program to ignore part of the input data from fields_file).
 
-// Load number fields from the file
-pset := {2} join p_allowed;
 if not assigned Kstr then
+	// Load number fields from nf_file
 	if not assigned Kfile then
 		t := Cputime();
 		RX<x> := PolynomialRing(Rationals());
@@ -63,17 +122,16 @@ if not assigned Kstr then
 			c := atoii(s[j+1..#s]);
 			if not #c-1 in field_degrees then continue; end if;
 			T := PrimeDivisors(D);
-			if not T subset pset or #T gt p_maxnumber or &*T gt p_maxproduct then continue; end if;
+			if not T subset P or #T gt pnum or &*[Integers()|p:p in T|p gt radminp] gt radmax then continue; end if;
 			Append(~I,i);
 		end for;
-		fprintf "/dev/stderr","%o:Loaded %o number fields in %.3os\n", jobid, #I, Cputime()-t;
 		Ks := Ks[I];
+		fprintf "/dev/stderr","%o:Loaded %o number fields in %.3os\n", jobid, #Ks, Cputime()-t;
 	else
 		Ks := Split(Read(Kfile));
-		I := [1..#Ks];
 	end if;
 else
-	I := [1]; Ks := [Kstr];
+	Ks := [Kstr];		// use number field specififed on the command line
 end if;
 
 if assigned Kdump then
@@ -89,16 +147,16 @@ Kfs := [atoii(Split(k,":")[2]):k in Ks];
 if not assigned Estr then
 	if not assigned Efile then
 		t := Cputime();
-		conductors := {N:N in [11..Min(Nmax,499999)]|P subset p_allowed and #P le p_maxnumber and &*P le p_maxproduct where P:=PrimeDivisors(N)};
+		conductors := {N:N in [11..Min(Nmax,499999)]|Q subset P and #Q le pnum and &*[Integers()|p:p in Q|p gt radminp] le radmax where Q:=PrimeDivisors(N)};
 		ECDB := CremonaDatabase();
 		Es := &cat[[Sprintf("%o:%o",Conductor(E),sprint(Coefficients(E))):E in EllipticCurves(ECDB,N)]:N in conductors];
 		if Nmax gt 500000 then
 			S := Split(Read(ec_file));
-			Es cat:= [r:r in S|N le Nmax and P subset p_allowed and #P le p_maxnumber and &*P le p_maxproduct where P:= PrimeDivisors(N) where N:=atoi(Split(r,":")[1])];
+			Es cat:= [r:r in S|N le Nmax and Q subset P and #P le pnum and &*[Integers()|p:p in Q|p gt radminp] le radmax where Q:= [p:p in PrimeDivisors(N)|p ne 2] where N:=atoi(Split(r,":")[1])];
 		end if;
 		fprintf "/dev/stderr","%o:Computed set of %o elliptic curves in %.3os\n", jobid, #Es, Cputime()-t;
 	else
-		Es := Split(Read(Efile));
+		Es := Split(Read(Efile));	// use elliptic curve specififed on the command line
 	end if;
 else
 	Es := [Estr];
@@ -107,12 +165,11 @@ end if;
 if assigned Edump and Edump ne "0" then for Estr in Es do print Estr; end for; exit; end if;
 
 cnt := -1;
-rstrs := [];
 fs := {};
-for Estr in Es do
+for Estr in Es do // for each elliptic curve E
 	cnt +:= 1;
 	if (cnt-jobid) mod jobs ne 0 then continue; end if;
-	fprintf "/dev/stderr","%o:Working on elliptic curve %o\n", jobid, Estr;
+	if verbose ge 0 then fprintf "/dev/stderr","%o:Working on elliptic curve %o\n", jobid, Estr; end if;
 	Estart := Cputime();
 	E := ":" in Estr select EllipticCurve(atoii(Split(Estr,":")[2])) else EllipticCurve(Estr);
 	NE := Conductor(E); eprimes := PrimeDivisors(NE);
@@ -121,24 +178,29 @@ for Estr in Es do
 	r := #MW_Q;
 	T2:=[E!0] cat [phi((Order(P) div 2)*P):P in Generators(MW)|Order(P) ne 0 and Order(P) mod 2 eq 0];
 	if #T2 eq 3 then T2[4]:=T2[2]+T2[3]; end if;
-	fprintf "/dev/stderr","%o:Computed Mordell-Weil group with %o generators and #E(Q)[2]=%o for %o in %.3os\n", jobid, r, #T2, Estr, Cputime()-Estart;
+	if verbose ge 0 then fprintf "/dev/stderr","%o:Computed Mordell-Weil group with %o generators and #E(Q)[2]=%o for %o in %.3os\n", jobid, r, #T2, Estr, Cputime()-Estart; end if;
 	p_E := Set(PrimeDivisors(NE));
-	I := r eq 0 select [i:i in [1..#Ks]|#Kfs[i] gt 3] else [1..#Ks]; // For r = 0 we want the deg(K) >= 3
-	I := [i:i in I|#s le p_maxnumber and &*s le p_maxproduct where s:=p_E join Kps[i]];
-	if not single then fprintf "/dev/stderr","%o:Selected %o number fields for elliptic curve %o\n",jobid,#I,Estr; end if;
+	I := r eq 0 select [i:i in [1..#Ks]|#Kfs[i] gt 3] else [1..#Ks]; // For r = 0 we want the deg(K) >= 3, meaning #Kfs[i] > 3 (cubic has 4 coeffs)
+	I := [i:i in I|#s le pnum and &*[Integers()|p:p in s|p gt radminp] le radmax where s:=(p_E join Kps[i])];
+	if verbose ge 0 then fprintf "/dev/stderr","%o:Selected %o number fields for elliptic curve %o\n",jobid,#I,Estr; end if;
 
-	Eout:=0; Kcnt:=0;
-	for Ki in I do
+	Eout:=0; Kcnt:=0; ctot:=0; xtot:=0;
+	for Ki in I do // for each number field K
 		Kstr:=Ks[Ki];
 		Kstart := Cputime();
-		if verbose gt 0 or not single then fprintf "/dev/stderr","%o:Working on number field %o for elliptic curve %o\n", jobid, Kstr, Estr; end if;
-		K := NumberField(PolynomialRing(QQ)!Kfs[Ki]:DoLinearExtension); // DoLinearExtension handles Q
+		if not assigned EKdump and verbose ge 0 then fprintf "/dev/stderr","%o:Working on number field %o for elliptic curve %o\n", jobid, Kstr, Estr; end if;
+		K := NumberField(PolynomialRing(QQ)!Kfs[Ki]:DoLinearExtension); // DoLinearExtension lets us include Q as the trivial extension
 		EK := ChangeRing(E, K);
 		if Degree(K) gt 1 then
 			Pts_K := SetToSequence(Points(EK : Bound := B_pt[Degree(K)]));
 			// There need to be K-points that are not defined over Q
 			if &and[X[1] in QQ and X[2] in QQ and X[3] in QQ:X in Pts_K] then
-				if verbose gt 0 then fprintf "/dev/stderr","%o:No new K-points (r=%o) for number field %o for elliptic curve %o after %.3os\n", jobid, r, Kstr, Estr, Cputime()-Kstart; end if;
+				if (not assigned EKdump and verbose ge 0) or verbose ge 1 then fprintf "/dev/stderr","%o:Finished number field %o for elliptic curve %o finding no new K-points (r=%o) after %.3os\n", jobid, Kstr, Estr, r, Cputime()-Kstart; end if;
+				continue;
+			end if;
+			if assigned EKdump then
+				Kcnt +:=1;
+				print Sprintf("%o:%o:%o:%.3os",jobid,Estr,Kstr,Cputime()-Kstart);
 				continue;
 			end if;
 			Pts_K cat:= [ EK | x:x in MW_Q];
@@ -147,18 +209,18 @@ for Estr in Es do
 			assert rK ge r;
 			// There need to be more points over K than over Q
 			if rK eq r then
-				if verbose gt 0 then fprintf "/dev/stderr","%o:Not enough K-points (r=%o, rK=%o) for number field %o for elliptic curve %o after %.3os\n", jobid, r, rK, Kstr, Estr, Cputime()-Kstart; end if;
+				if verbose ge 0 then fprintf "/dev/stderr","%o:Finished number field %o for elliptic curve %o finding not enough K-points (r=%o) after %.3os\n", jobid, Kstr, Estr, r, Cputime()-Kstart; end if;
 				continue;
 			end if;
 		else
+			if assigned EKdump and EKdump ne "0" then
+				print Sprintf("%o:%o:%.3os",jobid,Estr,Kstr,Cputime()-Kstart);
+				continue;
+			end if;
 			MW_K := [ EK | phi(g) : g in Generators(MW)];
 			rK := #MW_K;
 		end if;
 		Kcnt +:= 1;
-		if assigned EKdump and EKdump ne "0" then
-			print Sprintf("%o:%o:%o:%o:%.3os",Estr,Kstr,r,rK,Cputime()-Kstart);
-			continue;
-		end if;
 
 		L, rts := NormalClosure(K);
 		EL := ChangeRing(E, L);
@@ -176,15 +238,15 @@ for Estr in Es do
 			coeff_set := S_comb(MW_K);
 		end if;
 
-		fprintf "/dev/stderr","%o:Computed coefficient set of size %o for number field %o for elliptic curve %o with MWQinv=%o and MWKinv=%o in %.3os\n", jobid, #coeff_set, Kstr, Estr, sprint([Order(P):P in MW_Q]), sprint([Order(P):P in MW_K]), Cputime()-Kstart;
+		if verbose ge 0 then fprintf "/dev/stderr","%o:Computed coefficient set of size %o for number field %o for elliptic curve %o with MWQinv=%o and MWKinv=%o in %.3os\n", jobid, #coeff_set, Kstr, Estr, sprint([Order(P):P in MW_Q]), sprint([Order(P):P in MW_K]), Cputime()-Kstart; end if;
 		Qstrs := {};
-		Kout := 0; ccnt := 0;
-		for c in coeff_set do
+		Kout := 0; ccnt := 0; xcnt := 0;
+		for c in coeff_set do // for each integer linear combination of generators
 			ccnt +:= 1;
 			if verbose gt 0 then fprintf "/dev/stderr","%o:Working on coefficients %o (%o of %o) for number field %o for elliptic curve %o\n", jobid, sprint(c), ccnt, #coeff_set, Kstr, Estr; end if;
 			Cstart := Cputime();
 			if Degree(K) eq 1 then
-				cc := [x:x in c]; assert #c eq 3;
+				cc := [x:x in c];
 				Ps := [ &+[cc[i][j]*phi(MW.j) : j in [1..r]] : i in [1..3] ];
 				P1, P2, P3 := Explode(Ps);
 				Nx := Numerator(x)*Denominator(x) where x := (P1[1] - P2[1])*(P1[1] - P3[1])*(P2[1] - P3[1]);
@@ -219,17 +281,19 @@ for Estr in Es do
 				if verbose gt 0 then fprintf "/dev/stderr","%o:Ramification points not distinct, skipping coefficients %o for number field %o for elliptic curve %o after %.3os\n", jobid, sprint(c), Kstr, Estr, Cputime()-Cstart; end if;
 				continue;
 			end if;
-			// if not(2 in p_allowed) and Degree(K) eq 3 and not(IsZero(bar2(PK))) then continue; end if;
-			// Analyse the set of primes where some points are colliding.
-			T := TrialDivision(N, p_max);
+
+			// Analyse the set of odd primes where some points are colliding.
+			T := TrialDivision(N, pmax);
 			p_collide := { p[1] : p in T };
-			bad_primes := p_collide join p_E;
-			if &*[Integers()|r[1]^r[2]:r in T] ne N or not(bad_primes subset pset) or #bad_primes gt p_maxnumber or &*bad_primes gt p_maxproduct then
+			bad_primes := (p_collide join p_E);
+			odd_bad_primes := bad_primes diff {2};
+			if &*[Integers()|r[1]^r[2]:r in T] ne N or not(odd_bad_primes subset P) or
+			   #odd_bad_primes gt pnum or &*[Integers()|p:p in odd_bad_primes|p gt radminp] gt radmax then
 			    if verbose gt 0 then fprintf "/dev/stderr","%o:Bad set of colliding primes for %o digit N, skipping coefficients %o for number field %o for elliptic curve %o after %.3os\n", jobid, sprint(Ceiling(Log(10,Abs(N)))), sprint(c), Kstr, Estr, Cputime()-Cstart; end if;
 				continue;
 			end if;
 			Psum := E!(P1 + P2 + P3 + P4);
-			b, Q := IsDivisibleBy(Psum, 2);	// Check if P1+P2+P3+P4 is divisible by 2 for later RR calculation. (TODO: improve this in case of degree <= 3 by choosing P4 to automatically satisfy this)
+			b, Q0 := IsDivisibleBy(Psum, 2);	// Check if P1+P2+P3+P4 is divisible by 2 for later Riemann-Roch calculation
 			if not(b) then
 				if verbose gt 0 then fprintf "/dev/stderr","%o:Psum not divisible by 2, skipping coefficients %o for number field %o for elliptic curve %o after %.3os\n", jobid, sprint(c), Kstr, Estr, Cputime()-Cstart; end if;
 				continue;
@@ -240,133 +304,82 @@ for Estr in Es do
 			InumQ := ideal<CoordinateRing(Ambient(E)) | GroebnerBasis(Inum) >;
 			DnumQ := Divisor(E, InumQ);
 
-			// Loop over Q+T for T 2-torsion point on Q
-			Q0:=Q;
-			for i:=1 to #T2 do
+			for i:=1 to #T2 do // for each 2-torsion point of E
 				if verbose gt 0 then fprintf "/dev/stderr","%o:Working on T2[%o]=%o in coefficients %o (%o of %o) for number field %o for elliptic curve %o\n", jobid, i, sprint(T2[i]), sprint(c), ccnt, #coeff_set, Kstr, Estr; end if;
 				Q := Q0+T2[i];
 				Qstr := sprint(InumQ) cat ":" cat sprint(Q);
 				if Qstr in Qstrs then continue; else Include(~Qstrs,Qstr); end if;
-				D := DnumQ - 2*Divisor(Q) - 2*Divisor(Zero(E));
-
-				// Use Riemann-Roch to find a function f with odd poles at P1, P2, P3, and P4.
-				b, f := IsPrincipal(D);
-				assert b;
-				// Extend the function field with sqrt(f)
-				FF<x,y> := FunctionField(E);
-				FF2<y>, rho_alg := AlgorithmicFunctionField(FF);
-				_<x> := BaseField(FF2);
-				f2 := rho_alg(f);
-				R<Z> := PolynomialRing(FF2);
-				KF<a> := ext<FF2 | Z^2 - f2>;
-
-				// Next find equation for canonical image, or hyperelliptic equation.
-				LF := AbsoluteFunctionField(KF);
-				g := DefiningPolynomial(LF);
-				if #sprint(g) gt 2000 then  // If the equation for g is too horrible give up now
-					fprintf "/dev/stderr","%o:Defining polynomial with %o characters too big, skipping coefficients %o(%o) for number field %o for elliptic curve %o after %.3os\n", jobid, #sprint(g), sprint(c), i, Kstr, Estr, Cputime()-Cstart;
-					continue;
+				xcnt +:= 1;
+				if verbose gt 1 then tcover := Cputime(); end if;
+				sts, X := Genus3DoubleCover(E,DnumQ,Q:SizeBound:=Cmax);
+				if verbose gt 1 then fprintf "/dev/stderr","%o:Genus3DoubleCover returned %o for coefficients %o(%o) for number field %o for elliptic curve %o after %.3os\n", jobid, sts, sprint(c), i, Kstr, Estr, Cputime()-tcover; tpost := Cputime(); end if;
+				if sts lt 0 then
+					if verbose ge 0 then fprintf "/dev/stderr","%o:Error %o returned by Genus3DoubleCover for coefficients %o(%o) for number field %o for elliptic curve %o after %.3os\n", jobid, sts, sprint(c), i, Kstr, Estr, Cputime()-Cstart; end if;
+				    continue;
 				end if;
-				C0 := Curve(AffineSpace(Parent(g)), g);
-				ghyp, X := IsGeometricallyHyperelliptic(C0);
-				if ghyp then
-					spq := false;
-					hyp, C := IsHyperelliptic(C0);
-					d := 0;
-					if not hyp then
-						d := Integers()!Discriminant(MinimalModel(X));
-						T := TrialDivision(d,p_max);
-						Tbad := {r[1]:r in T} join bad_primes; 
-						if &*[Integers()|r[1]^r[2]:r in T] ne d or #Tbad gt p_maxnumber or &*Tbad gt p_maxproduct then
-							if verbose gt 0 then fprintf "/dev/stderr","%o:Geometrically hyperelliptic curve whose conic introduces to many or too large bad primes, skipping coefficients %o(%o) for number field %o for elliptic curve %o after %.3os\n", jobid, sprint(c), i, Kstr, Estr, Cputime()-Cstart; end if;
-							continue;
-						end if;
-						d := SquareFree(d);
-						for c in [1,-1,2,-2] do
-							ghyp, C := IsHyperelliptic(ChangeRing(C0,QuadraticField(c*d)));
-							if ghyp then d:=c*d; break; end if;
-						end for;
-						if not ghyp then // how does this happen?
-							fprintf "/dev/stderr","%o:Geometrically hyperelliptic curve not hyperelliptic over Q(sqrt(disc(X)) where X is the conic with discriminant D=+/-1,2*%o, skipping coefficients %o(%o) for number field %o for elliptic curve %o after %.3os\n", jobid, Abs(d), sprint(c), i, Kstr, Estr, Cputime()-Cstart;
-							continue;
-						end if;
-						C := SimplifiedModel(C);
-						f := HyperellipticPolynomials(C);
-						f *:= LCM([Denominator(c):c in Coefficients(f)])^2;
-						C := HyperellipticCurve(f);
-						fdisc := Abs(Integers()!Norm(Discriminant(C)));
+				hyp := Type(X) eq CrvHyp;
+				g := 3;
+				ctype := hyp select "hyperelliptic" else "SPQ";
+				if hyp then
+				    L := EvenModels(X);
+				    if #L gt 0 then
+    					Y := #L eq 1 select L[1] else PickEvenModel(L,E);
+						X := IntegralSimplifiedModel(Genus2CurveFromEvenModel(Y)); g := 2; ctype := "genus 2";
+					else
+						X := IntegralSimplifiedModel(X);
 					end if;
-					C := SimplifiedModel(C);
-					f := HyperellipticPolynomials(C);
-					f *:= LCM([Denominator(c):c in Coefficients(f)])^2;
-					C := HyperellipticCurve(f);
-					fdisc := (hyp select 1 else d^2)*Abs(Integers()!Norm(Discriminant(C)));
-					f := d eq 0 select CoefficientString(C) else sprint([[d]] cat [Eltseq(c):c in Coefficients(f)]);
 				else
-					hyp := false; spq := true;
-					rho_can := CanonicalMap(C0);
-					C := CanonicalImage(C0, rho_can);
-					assert Genus(C) eq 3;
-					f := CoefficientString(C);
-					fdisc := Abs(Integers()!CurveDiscriminant(C));
+					b,Y := Genus2CurveFromEvenModel(X);
+					if b then X := IntegralSimplifiedModel(Y); g := 2; hyp := true; ctype := "genus 2"; end if;
 				end if;
-				ctype := hyp select "hyperelliptic" else (ghyp select "geometrically hyperelliptic" else "plane quartic");
+				fdisc := Abs(Integers()!Discriminant(X));
 				if Log(10,fdisc) gt 5000 then
 					if verbose gt 0 then fprintf "/dev/stderr","%o:Large %o digit discriminant for %o curve, skipping coefficients %o(%o) for number field %o for elliptic curve %o after %.3os\n", jobid, #sprint(fdisc), ctype, sprint(c), i, Kstr, Estr, Cputime()-Cstart; end if;
 				    continue;
 				end if;
-				disc_primes := {p:p in bad_primes|fdisc mod p eq 0};
-				xdisc := fdisc div &*[p^Valuation(fdisc,p):p in disc_primes];
-				extra_primes := xdisc gt 1 select (b select {p} else {p:p in pset|xdisc mod p eq 0} where b,p:=IsPrimePower(xdisc)) else {Integers()|};
-				if &*[Integers()|p^Valuation(xdisc,p):p in extra_primes] ne xdisc then
+				disc_primes := {Integers()|p:p in bad_primes|fdisc mod p eq 0};
+				xdisc := fdisc div &*[Integers()|p^Valuation(fdisc,p):p in disc_primes];
+				T := TrialDivision(xdisc, Amax);
+				if &*[Integers()|r[1]^r[2]:r in T] ne xdisc then
 					if verbose gt 0 then fprintf "/dev/stderr","%o:Extraneous large prime of bad reduction for %o curve with %o digit discriminant, skipping coefficients %o(%o) for number field %o for elliptic curve %o after %.3os\n", jobid, ctype, #sprint(fdisc), sprint(c), i, Kstr, Estr, Cputime()-Cstart; end if;
 					continue;
 				end if;
-				disc_primes join:= extra_primes;
-				// Don't try to minimize until we are sure we can easily factor the discriminant
+				disc_primes join:= {r[1]:r in T};
+				if verbose gt 1 then fprintf "/dev/stderr","%o:Initial post processing for coefficients %o(%o) for number field %o for elliptic curve %o took %.3os\n", jobid,  sprint(c), i, Kstr, Estr, Cputime()-tpost; tpost := Cputime(); end if;
 				if hyp then
-					C := ReducedMinimalWeierstrassModel(C);
-					f := CoefficientString(C);
-					fdisc := Abs(Integers()!Discriminant(C));
-				elif ghyp then
-					// We current make no attempt to minimize geometrically hyperelliptic curves
+					X := ReducedMinimalWeierstrassModel(X);
+					f := CoefficientString(X);
+					fdisc := Abs(Integers()!Discriminant(X));
 				else
-					f := DefiningPolynomial(C);
-					for p in disc_primes do if Valuation(fdisc,p) ge 12 then f := MinimizePlaneQuartic(f,p); fdisc := Abs(TernaryFormDiscriminant(f)); end if; end for;
+					// minimize plane quartic prime by prime to avoid calling MinimizeReducePlaneQuartic, which might get stuck
+					f := DefiningPolynomial(X);
+					for p in disc_primes do
+						if Valuation(fdisc,p) ge 12 then
+							f := MinimizePlaneQuartic(f,p); fdisc := Abs(TernaryFormDiscriminant(f));
+						end if;
+					end for;
 					n := #disc_primes;
 					disc_primes := [p:p in disc_primes|fdisc mod p eq 0];
 					if verbose gt 0 and #disc_primes lt n then fprintf "/dev/stderr","%o:Minimization removed a bad prime for coefficients %o(%o) for number field %o for elliptic curve %o after %.3os\n", jobid, sprint(c), i, Kstr, Estr, Cputime()-Cstart; end if;
 					f := CoefficientString(Genus3Curve(f));
 				end if;
-				assert IsDivisibleBy(fdisc,NE);
+				if verbose gt 1 then fprintf "/dev/stderr","%o:Final post processing for coefficients %o(%o) for number field %o for elliptic curve %o took %.3os\n", jobid,  sprint(c), i, Kstr, Estr, Cputime()-tpost; end if;
 				if f in fs then continue; else Include(~fs,f); end if;
-				if #disc_primes gt p_maxnumber+2 or &*[Integers()|p:p in disc_primes|not p in eprimes and Valuation(fdisc,p) lt 12] gt p_maxproduct then
-					if verbose gt 0 then fprintf "/dev/stderr","%o:Too many extra primes of bad reduction %o %o, skipping coefficients %o(%o) for number field %o for elliptic curve %o after %.3os\n", jobid, disc_primes, sprint([Valuation(fdisc,p):p in disc_primes]), sprint(c), i, Kstr, Estr, Cputime()-Cstart; end if;
+				if #disc_primes gt pnum+2 or
+				   &*[Integers()|p:p in disc_primes|(g eq 2 or not p in eprimes) and Valuation(fdisc,p) lt 12] gt Amax then
+					if verbose gt 0 then fprintf "/dev/stderr","%o:Too many extra primes of bad reduction %o %o, skipping coefficients %o(%o) for number field %o for elliptic curve %o after %.3os\n", jobid, sprint(disc_primes), sprint([Valuation(fdisc,p):p in disc_primes]), sprint(c), i, Kstr, Estr, Cputime()-Cstart; end if;
 				    continue;
 				end if;
-				rstr := Sprintf("%o:%o:%o",jobid,f,Estr);
-				if not rstr in rstrs then
-					Include(~rstrs,rstr);
-					Kout+:=1; Eout+:=1;
-					N := fdisc div NE;
-					badp := Sort([p:p in disc_primes]);
-					emin := [NE mod p ne 0 and Valuation(N,p) in [1..11] select 1 else 0:p in badp];
-					emax := [Min(Valuation(N,p),pmaxval(p)):p in badp];
-					if hyp or spq then C := Genus3Curve(f); end if;
-					inv := ghyp select NormalizedShiodaInvariants(C) else DixmierOhnoInvariants(C:IntegralNormalization);
-					if not ghyp then assert fdisc eq Abs(inv[13]); end if;
-					s := Sprintf("%o/%o",f,CoefficientString(E));
-					// todo add hashes for geometrically hyperelliptic curves
-					if hyp or spq then hash, qhash := TraceTwistHash(s); else hash := 0; qhash := 0; end if;
-					print Sprintf("%o:%o:%o(%o):%o:%o:%o:%o:%o:%o:%.3o",rstr,Kstr,sprint(c),i,sprint(badp),sprint(emin),sprint(emax),hash,qhash,sprint(inv),Cputime()-Cstart);
-				end if;
+				Kout+:=1; Eout+:=1;
+				print Sprintf("%o:%o:%o:%o:%o:%o:%.3o",jobid,sts,g,f,Estr,Kstr,Cputime()-Cstart);
 				if verbose gt 0 and #T2 gt 1 then fprintf "/dev/stderr","%o:Finished T2[%o]=%o for coefficients %o (%o of %o) for number field %o for elliptic curve %o in %.3os\n", jobid, i, sprint(T2[i]), sprint(c), ccnt, #coeff_set, Kstr, Estr, Cputime()-Cstart; end if;
 			end for;
 			if verbose gt 0 then fprintf "/dev/stderr","%o:Finished coefficients %o (%o of %o) for number field %o for elliptic curve %o in %.3os\n", jobid, sprint(c), ccnt, #coeff_set, Kstr, Estr, Cputime()-Cstart; end if;
 		end for;
-		fprintf "/dev/stderr","%o:Finished number field %o for elliptic curve %o testing %o coefficient combinations and generating %o Pryms in %.3os\n", jobid, Kstr, Estr, #coeff_set, Kout, Cputime()-Kstart;
+		ctot +:= ccnt; xtot +:= xcnt;
+		if verbose ge 0 then fprintf "/dev/stderr","%o:Finished number field %o for elliptic curve %o testing %o coefficients, %o covers, and generating %o Pryms in %.3os\n", jobid, Kstr, Estr, ccnt, xcnt, Kout, Cputime()-Kstart; end if;
 	end for;
-	if not single then fprintf "/dev/stderr","%o:Finished elliptic curve %o testing %o number fields of which %o passed, generating %o Pryms in %.3os\n", jobid, Estr, #I, Kcnt, Eout, Cputime()-Estart; end if;
+	if verbose ge 0 then fprintf "/dev/stderr","%o:Finished elliptic curve %o testing %o number fields (of which %o passed), %o coefficients, %o covers, generating %o Pryms in %.3os\n", jobid, Estr, #I, Kcnt, ctot, xtot, Eout, Cputime()-Estart; end if;
 end for;
 if assigned EKfp then Flush(EKfp); end if;
 exit;
