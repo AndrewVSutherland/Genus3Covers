@@ -1,29 +1,33 @@
-// depends on utils.m, g3cover.m
-Attach("g3cover.m");
+// We assume https://github.com/AndrewVSutherland/Magma/blob/main/utils.m is already attached (e.g. in your magma startup file)
+// If that is not the case, download it and insert 'Attach("utils.m");' before the line below attaching g3cover.m.
+Attach("g3cover.m"); // depends on utils.m
 
 if not assigned P and not assigned Kstr then
 	print "usage: magma -b arg:=val ... prym.m\n";
     print "Supported values of arg include:\n";
     print "  P (val is a bad prime bound or list of bad primes allowed; this is required unless Estr and Kstr are both specified)";
-    print "  pnum (val is a positive integer found on the number of odd bad primes allowed; default is 5)";
+    print "  pnum (val is a positive integer bound on the number of odd bad primes allowed; default is 5)";
     print "  radminp (val is a positive integer (strict) lower bound on the primes to ignore when applying radmax; default is 1)";
     print "  radmax (val is a positive integer bounding the product of primes > radminp; default is 2^19)";
-    print "  Nmax (val is a positive integer bound on the conductor of elliptic curves to consider; default 1000)";
-    print "  Dmax (val is a positive integer bound on the absolute value of the discriminant of number fields to consider; default 10000)";
+    print "  Nmax (val is a positive integer bound on the conductor of elliptic curves to consider; default is 1000)";
+    print "  Dmax (val is a positive integer bound on the absolute value of the discriminant of number fields to consider; default is 10000)";
     print "  Efile (val is the name of a file of elliptic curves E to use, with rows N:[a1,a2,a3,a4,a6], where N is the conductor of E;";
-    print "         default is curves in the Cremona database or the file lmfdb_prym_ec.txt, which includes all E/Q with good reduction at all p>7)";
+    print "         default is to use all E/Q of conductor <= min(Nmax,500000) (the Cremona DB is included in Magma)";
     print "  Kfile (val is the name of a file of number fields K to use, with rows D:[f0,f1,...fd], where D=|disc(K)| and K=Q[x]/(f0+f1*x+...+fd*x^d);";
-    print "         default is to use number fields listed in the file lmfdb_prym_nf.txt, which includes number field of degree <= 4 with |disc(K)|<=2^20)";
+    print "         default is to use number fields listed in the file lmfdb_prym_nf.txt, which includes Q and all number fields satsfying";
+    print "         d=2 and either D <= 2000000 or D 17-smooth";
+    print "         d=3 and either D <= 3375000 or D 19-smooth";
+    print "         d=4 and either D <= 4000000 or D 13-smooth)";
     print "  Estr (val is a string \"N:[a1,a2,a3,a4,a6]\" specifying the elliptic curve E to use, where N is the conductor)";
     print "  Kstr (val is a string \"D:[f0,f1,...,fd]\" specifying the number field K=Q[x]/(f0+f1*x+...+fd*x^d) to use, where D=|disc(K)|)";
     print "  cnum (val is a positive integer bound on the maximum number of point combinations to try; default is 5^6)";
-    print "  cbound (val is a positive integer bound on the absolute value of integer cofficients used in point combinations; default is 5)";
+    print "  cbound (val is a positive integer bound on the absolute value of integer coefficients used in point combinations; default is 5)";
     print "  jobs (val is a positive integer n specifying that this command is one of n jobs; default is 1)";
-    print "  jobid (val is an integer in [0,n-1] specifying which job this (will be reduced mod jobs); default is 0)";
+    print "  jobid (val is an integer in [0,n-1] specifying which job this is (automatically reduced modulo jobs); default is 0)";
     print "  verbose (val is a nonnegative integer specifying the verbosity level from 0 to 2; default is 0)";
-    print "  Edump (val is 0 or 1, with 1 indicating output should simply be a file N:[a1,a2,a3,a4,a6] for E matching bad prime criteria)";
-    print "  Kdump (val is 0 or 1, with 1 indicating output should simply be a file D:[f0,...,fd] for K matching bad (ramified) prime criteria)";
-    print "  EKdump (val is 0 or 1, with 1 indicating output should simply be a file N:[a1,a2,a3,a4,a6]:D:[f0,f1,...,fd]:r:rK for each pair E,K with r<rK)";
+    print "  Edump (val is 0 or 1; default 0, if 1 outputs a file N:[a1,a2,a3,a4,a6] for E matching bad prime criteria)";
+    print "  Kdump (val is 0 or 1; default 0, if 1 outputs a file D:[f0,...,fd] for K matching bad (ramified) prime criteria)";
+    print "  EKdump (val is 0 or 1; default 0, if 1 outputs a file N:[a1,a2,a3,a4,a6]:D:[f0,f1,...,fd]:r:rK for each pair E,K satsifying bad prime criteria)";
     print "";
 	exit;
 end if;
@@ -36,7 +40,6 @@ if assigned Kstr then
 	assert assigned Estr;
 	if not assigned P then P := sprint(PrimeDivisors(atoi(Split(Estr,":")[1])) cat PrimeDivisors(atoi(Split(Kstr,":")[1]))); end if;
 end if;
-Pstr := assigned P select P else "[2]";
 P := assigned P select (P[1] eq "[" select atoii(P) else PrimesInInterval(1,atoi(P))) else [2];
 P := Sort([p:p in Set(P)]); assert &and[IsPrime(p):p in P];
 cbound := assigned cbound select atoi(cbound) else 5;
@@ -55,7 +58,7 @@ ec_file := "lmfdb_prym_ec.txt"; // list of elliptic curves N:[a1,a2,a3,a4,a6] no
 
 U<x,y,z> := PolynomialRing(Rationals(), 3);
 
-// B_pt holds upper bounds for EC point search, dependending on the degree of the field.
+// B_pt holds upper bounds for EC point search, depending on the degree of the field.
 B_pt := AssociativeArray(); B_pt[2] := 100; B_pt[3] := 50; B_pt[4] := 25;
 B_sat := 10;				// Upper bound on primes used in saturation step.
 Amax := 2^20;				// Upper bound on target conductors of Prym (we skip covers we can prove exceed this)
@@ -104,7 +107,7 @@ function PickEvenModel(L,E)
     return L[1];
 end function;
 
-field_degrees := {1,2,3,4};	// Allowable degrees for ramification points (may cause program to ignore part of the input data from fields_file).
+field_degrees := {1,2,3,4};	// Allowable degrees for ramification points
 
 if not assigned Kstr then
 	// Load number fields from nf_file
@@ -156,10 +159,10 @@ if not assigned Estr then
 		end if;
 		fprintf "/dev/stderr","%o:Computed set of %o elliptic curves in %.3os\n", jobid, #Es, Cputime()-t;
 	else
-		Es := Split(Read(Efile));	// use elliptic curve specififed on the command line
+		Es := Split(Read(Efile));	// use elliptic curves listed in user-supplied file
 	end if;
 else
-	Es := [Estr];
+	Es := [Estr];		// use elliptic curve specified on the command line
 end if;
 
 if assigned Edump and Edump ne "0" then for Estr in Es do print Estr; end for; exit; end if;
@@ -193,7 +196,7 @@ for Estr in Es do // for each elliptic curve E
 		EK := ChangeRing(E, K);
 		if Degree(K) gt 1 then
 			Pts_K := SetToSequence(Points(EK : Bound := B_pt[Degree(K)]));
-			// There need to be K-points that are not defined over Q
+			// For K != Q we require at least one rational K-points that is not defined over Q
 			if &and[X[1] in QQ and X[2] in QQ and X[3] in QQ:X in Pts_K] then
 				if (not assigned EKdump and verbose ge 0) or verbose ge 1 then fprintf "/dev/stderr","%o:Finished number field %o for elliptic curve %o finding no new K-points (r=%o) after %.3os\n", jobid, Kstr, Estr, r, Cputime()-Kstart; end if;
 				continue;
@@ -207,11 +210,6 @@ for Estr in Es do // for each elliptic curve E
 			MW_K := Saturation(Pts_K, B_sat);
 			rK := #MW_K;
 			assert rK ge r;
-			// There need to be more points over K than over Q
-			if rK eq r then
-				if verbose ge 0 then fprintf "/dev/stderr","%o:Finished number field %o for elliptic curve %o finding not enough K-points (r=%o) after %.3os\n", jobid, Kstr, Estr, r, Cputime()-Kstart; end if;
-				continue;
-			end if;
 		else
 			if assigned EKdump and EKdump ne "0" then
 				print Sprintf("%o:%o:%.3os",jobid,Estr,Kstr,Cputime()-Kstart);
@@ -227,7 +225,7 @@ for Estr in Es do // for each elliptic curve E
 		if Degree(K) eq 1 then
 			P4 := Identity(E);
 		elif Degree(K) lt 4 then
-			P4 := Identity(EL);	// Except for degree 4, pick the last point to be the identity.
+			P4 := Identity(EL);
 		end if;
 
 		if Degree(K) eq 1 then
@@ -275,7 +273,6 @@ for Estr in Es do // for each elliptic curve E
 				Nx := Numerator(x)*Denominator(x) where x := Norm(P1[1] - P2[1]);
 				Ny := Numerator(x)*Denominator(x) where x := Norm(P1[2] - P2[2]);
 				N := GCD(Nx, Ny);
-				// TODO: check divisibility by 2 for P1+P2+P3+P4 for the Riemann-Roch problem to be solvable.
 			end if;
 			if #{ EL | P1,P2,P3,P4} ne 4 or N eq 0 then
 				if verbose gt 0 then fprintf "/dev/stderr","%o:Ramification points not distinct, skipping coefficients %o for number field %o for elliptic curve %o after %.3os\n", jobid, sprint(c), Kstr, Estr, Cputime()-Cstart; end if;
@@ -381,5 +378,4 @@ for Estr in Es do // for each elliptic curve E
 	end for;
 	if verbose ge 0 then fprintf "/dev/stderr","%o:Finished elliptic curve %o testing %o number fields (of which %o passed), %o coefficients, %o covers, generating %o Pryms in %.3os\n", jobid, Estr, #I, Kcnt, ctot, xtot, Eout, Cputime()-Estart; end if;
 end for;
-if assigned EKfp then Flush(EKfp); end if;
 exit;

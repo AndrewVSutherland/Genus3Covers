@@ -159,6 +159,7 @@ intrinsic Genus3DoubleCover(E::CrvEll, DnumQ::DivCrvElt, Q::PtEll: SizeBound:=0)
 
     // We want to minimize our model for X before twisting, but we need to be careful to avoid hard factorizations
     // We use EasyFactorization to test the factorizability of the discriminant before calling ReducedMinimalWeierstrassModel
+    X := IntegralSimplifiedModel(X); // reconstructed curve will not always be integral
     D := Abs(Integers()!Discriminant(X));
     _,s := EasyFactorization(D);
     if s eq 0 then return -5,_; end if; // this will happen if X has bad reduction at two large primes
