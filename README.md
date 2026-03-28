@@ -2,7 +2,9 @@ This repository contains Magma code related to the paper *Abelian surfaces of sm
 
 It depends on the magma package file [utils.m](https://github.com/AndrewVSutherland/Magma/blob/main/utils.m).  If this package is not attached in your Magma startup file, you should download it and add the line `Attach("utils.m");` to the top of the file `prym.m`.
 
-An example use case is `magma -b P:=2 prym.m`, which will try to construct genus 3 double covers of elliptic curves that have good reduction away from 2.  This should take 3-5 minutes to run and produce a colon-delimited output file with several hundred genus 3 double covers; most (but not all) of the corresponding Prym varieties will have good reduction away from 2.  See the comments at the top of [prym.m](https://github.com/AndrewVSutherland/Genus3Covers/blob/main/prym.m) for a complete list of optional command line arguments.
+An example use case is `magma -b P:=2 prym.m >P2.txt`, which will try to construct genus 3 double covers of elliptic curves that have good reduction away from 2.  This should take 3-5 minutes to run and produce a colon-delimited output file `P2.txt` with several hundred genus 3 double covers; most (but not all) of the corresponding Prym varieties will have good reduction away from 2.  The output file should look similar to [P2example.txt](https://github.com/AndrewVSutherland/Genus3Covers/blob/main/P2example.txt) but is not likely to be identical (or even contain the same number of lines), due to non-determinism in the algorithms used to construct the covers.
+
+See the comments at the top of [prym.m](https://github.com/AndrewVSutherland/Genus3Covers/blob/main/prym.m) for a complete list of optional command line arguments.
 
 The output format is *i:n:g:X:N:E:D:f:t* where
 
