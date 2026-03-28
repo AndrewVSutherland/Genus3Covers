@@ -310,7 +310,7 @@ for Estr in Es do // for each elliptic curve E
 				sts, X := Genus3DoubleCover(E,DnumQ,Q:SizeBound:=Cmax);
 				if verbose gt 1 then fprintf "/dev/stderr","%o:Genus3DoubleCover returned %o for coefficients %o(%o) for number field %o for elliptic curve %o after %.3os\n", jobid, sts, sprint(c), i, Kstr, Estr, Cputime()-tcover; tpost := Cputime(); end if;
 				if sts lt 0 then
-					if verbose ge 0 then fprintf "/dev/stderr","%o:Error %o returned by Genus3DoubleCover for coefficients %o(%o) for number field %o for elliptic curve %o after %.3os\n", jobid, sts, sprint(c), i, Kstr, Estr, Cputime()-Cstart; end if;
+					if verbose gt 0 then fprintf "/dev/stderr","%o:Error %o returned by Genus3DoubleCover for coefficients %o(%o) for number field %o for elliptic curve %o after %.3os\n", jobid, sts, sprint(c), i, Kstr, Estr, Cputime()-Cstart; end if;
 				    continue;
 				end if;
 				hyp := Type(X) eq CrvHyp;
