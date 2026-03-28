@@ -14,5 +14,6 @@ The output format is *i:n:g:X:N:E:D:f:t* where
 - *E* is a list of five integers giving the Weierstrass coefficients of an elliptic curve
 - *D* is the absolute value of the discriminant of the number field of the polynomial *f*
 - *f* is an irreducible polynomial with integer coefficients defining a number field of degree at most 4 that contains the coefficients of the ramification points of the cover
+- *t* is the time (in seconds) spent computing the cover
 
 In addition to the output list of Pryms, which is written to stdout, informational/warning/error messages are written to stderr (you can control the level of detail using the `verbose` option).
