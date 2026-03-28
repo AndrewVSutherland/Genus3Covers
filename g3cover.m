@@ -143,6 +143,8 @@ intrinsic Genus3DoubleCover(E::CrvEll, DnumQ::DivCrvElt, Q::PtEll: SizeBound:=0)
     hyp, X := g3Hyperelliptic(X0);
     if not hyp then return -2,_; end if; // this should never happen
     if BaseRing(X) eq Rationals() then return 2,X; end if;
+    delete X0, f2, g, KF, LF;
+
     // We have a hyperelliptic model over a quadratic field with rational Shioda invariants we can use to create a twist over Q
     // Normalizing the Shioda invariants not only puts them over Q, it will try to minimize their size be removing common (weighted) factors
     // This may require factoring some large integers if the curve equation is horrible
@@ -163,7 +165,11 @@ intrinsic Genus3DoubleCover(E::CrvEll, DnumQ::DivCrvElt, Q::PtEll: SizeBound:=0)
     D := Abs(Integers()!Discriminant(X));
     _,s := EasyFactorization(D);
     if s eq 0 then return -5,_; end if; // this will happen if X has bad reduction at two large primes
-    X := ReducedMinimalWeierstrassModel(X);
+    try // temporary workaround to bug in Reduce
+        X := ReducedMinimalWeierstrassModel(X);
+    catch e
+        fprintf "/dev/stderr", "Error in ReduceMinimalWeierstrassModel on curve %o (ignored)\n",CoefficientString(X);
+    end try;
     D := Integers()!(Discriminant(X)*Discriminant(E)); // need to include disc(E) because E might not be twist-minimal
     Q := [ p mod 4 eq 3 select -p else p : p in PrimeDivisors(D)|IsOdd(p)];
     if IsEven(D) then Q := [-4,-8] cat Q; end if;
