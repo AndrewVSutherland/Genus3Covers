@@ -1,6 +1,7 @@
-// We assume https://github.com/AndrewVSutherland/Magma/blob/main/utils.m is already attached (e.g. in your magma startup file)
-// If that is not the case, download it and insert 'Attach("utils.m");' before the line below attaching g3cover.m.
-Attach("g3cover.m"); // depends on utils.m
+Attach("utils.m");
+Attach("genus3.m");
+Attach("g3cover.m");
+QQ := Rationals();
 
 if not assigned P and not assigned Kstr then
 	print "usage: magma -b arg:=val ... prym.m\n";

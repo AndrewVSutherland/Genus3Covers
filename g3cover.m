@@ -201,7 +201,7 @@ intrinsic Genus3DoubleCover(E::CrvEll, DnumQ::DivCrvElt, Q::PtEll: SizeBound:=0)
             if cnt lt 10 then continue; end if;
         end if;
         b,V := IsConsistent(Transpose(Matrix(A)),Vector(B));
-        if not b then return -6,_; end if; // this should never happen
+        if not b then return -7,_; end if; // this should never happen
         d := &*[Integers()|Q[i]:i in [1..#Q]|V[i] eq 1];
         break;
     end while;
