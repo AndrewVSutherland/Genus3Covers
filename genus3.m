@@ -187,7 +187,7 @@ intrinsic GHIsIsomorphic(q::RngMPolElt, f::RngMPolElt, g::RngUPolElt) -> BoolElt
         end if;
     end for;
     return #isos ne 0, isos;
-end intrinsic
+end intrinsic;
 
 intrinsic GHIsIsomorphic(q1::RngMPolElt, f1::RngMPolElt, q2::RngMPolElt, f2::RngMPolElt) -> BoolElt, SeqEnum
 { Given curves C1=[q1(x,y,z)=0,w^2=f1(x,y,z)] and C2=[q2(x,y,z)=0,w^2=f2(x,y,z)] with conics q1,q2 and homogeneous polys f1,f2, determines whether they are isomorphic or not. }
