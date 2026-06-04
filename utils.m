@@ -1193,7 +1193,7 @@ intrinsic ParallelJobs (cmd::MonStgElt, jobs::RngIntElt, workers::RngIntElt:infi
     if #missing gt 0 then print "FAILURE: error in ParallelJobs, parallel missed jobs:", sprint(missing); error "Jobs retry failed"; end if;
     System(Sprintf("rm %o %o %o",jobfile,jobsfile,logfile));
     vprintf ParallelJobs: "ParallelJobs parallel execution of %o jobs using %o workers%o took %.3os (\"%o\")\n", #joblist, workers, okay eq Set(joblist) select "" else " failed and", Realtime()-timer, cmd;
-end intrinsic
+end intrinsic;
 
 intrinsic PrimeCount (n::RngIntElt) -> RngIntElt
 { Returns pi(n) (using primecount). }
