@@ -31,10 +31,11 @@ end intrinsic;
 function monomial(e,R) return &*[R.i^e[i]:i in [1..3]]; end function;
 function exponent(m) return <Degree(m,i):i in [1..3]>; end function;
 
-// Return dense array of coefficients of given ternary form of degree at most 4 in lex monomial order
-function tf_coeffs(f)
-    d := Degree(f);
-    a := [BaseRing(Parent(f))!0 : i in [1..Binomial(Degree(f)+2,2)]];
+// Return dense array of coefficients of given ternary form of degree d in lex monomial order
+function tf_coeffs(f,d)
+    a := [BaseRing(Parent(f))!0 : i in [1..Binomial(d+2,2)]];
+    if f eq 0 then return a; end if;
+    assert Degree(f) eq d;
     m := MonomialsOfDegree(Parent(f),d);
     t := Monomials(f);  c:=Coefficients(f);
     for i:=1 to #t do a[Index(m,t[i])] := c[i]; end for;
@@ -43,12 +44,12 @@ end function;
 
 // Given ternary forms f0,f1,f1 of degree d, evaluate the linear operator D_{f0,f1,f2}:C[x]_{d-1}* --> C[x]_{2d-2}
 // (defined in Section 2.1 as the determinant of a 3x3 matrix) on a basis monomial u in B_{d-1}
-function tf_D(fs,u)
-    R:=Parent(fs[1]);
+function tf_D(f,u)
+    R:=Parent(f[1]);
     function Fi (i,u)
         r:=[R!0,0,0];
         v:=exponent(u);
-        for t in Terms(fs[i]) do
+        for t in Terms(f[i]) do
             e:=exponent(t);
             // figure out which Fij is relevant to this term (only one will be)
             if e[1] gt v[1] then j:=1; else j:= e[2] gt v[2] select 2 else 3; end if;
@@ -62,39 +63,40 @@ end function;
 // Evaluates the linear operator T_{f0,f1,f2}:C[x]_{d-2}^3 --> C[x]_{2d-2} defined in Section 2.1 as the product
 // of a polynomial fi and a monomial w;  Here we are taking (w,0,0),(0,w,0),(0,0,w) with w ranging over monomials
 // of degree d-2 as a basis for C[x]_(d-2}^3, which is why only need one of the fi
-function tf_T(fi,w)
-    return tf_coeffs(fi*w);
+function tf_T(fi,d,w)
+    assert Degree(w) eq d-2;
+    return tf_coeffs(fi*w,2*d-2);
 end function;
 
-// Given three ternary forms f:=[f0,f1,f2,f3] of degree d, compute the matrix of the linear operator Phi_{f0,f1,f2}
+// Given three ternary forms f:=[f0,f1,f2] of degree d, compute the matrix of the linear operator Phi_{f0,f1,f2}
 // as defined in Section 2.1 of the paper.
-// The first binom(d+1,2) rows are values of tf_D(f,v) with v identifies a monomial of degree d-1
+// The first binom(d+1,2) rows are values of tf_D(f,v) where v identifies a monomial of degree d-1
 // The last 3*binom(d,2) rows are values of tf_T(fi,w) where w identifies a monomial of degree d-2
 // Our ordering of the rows is arbitrary, this introduces a sign ambiguity that we fix in tf_res
-function phi_matrix(f)
+function phi_matrix(f,d)
     assert #f eq 3;
-    d:=Degree(f[1]); assert d gt 0;
     R:=Parent(f[1]);
     Trows:=[];
-    if d ge 2 then for i in [1..3] do for w in MonomialsOfDegree(R,d-2) do Append(~Trows,tf_T(f[i],w)); end for; end for; end if;
-    Drows:=[tf_coeffs(tf_D(f,v)):v in MonomialsOfDegree(R,d-1)];
+    if d ge 2 then
+        for i in [1..3] do for w in MonomialsOfDegree(R,d-2) do Append(~Trows,tf_T(f[i],d,w)); end for; end for;
+    end if;
+    A := [tf_D(f,v):v in MonomialsOfDegree(R,d-1)];
+    Drows:=[tf_coeffs(tf_D(f,v),2*d-2):v in MonomialsOfDegree(R,d-1)];
     return Matrix(Trows cat Drows);
 end function;
 
 // given three ternary forms f:=[f0,f1,f2] of degree d, compute their resultant R_d(f0,f1,f2)
-function tf_res(f)
-    assert #f eq 3;
-    d := Degree(f[1]); assert d gt 0;
-    s := Determinant(phi_matrix([Parent(f[1]).i^d:i in [1..3]]));
-    return s*Determinant(phi_matrix(f));
+function tf_res(f,d)
+    assert #f eq 3 and d gt 0;
+    s := Determinant(phi_matrix([Parent(f[1]).i^d:i in [1..3]],d));
+    return s*Determinant(phi_matrix(f,d));
 end function;
 
 // Given a ternary form f, compute its discriminant
 function tf_disc(f)
     if Type(f) eq SeqEnum and #f eq 1 then f:=f[1]; end if;
-    d:=Degree(f);
-    assert d gt 1;
-    return ExactQuotient(tf_res([Derivative(f,Parent(f).i):i in [1..3]]),-d^(d^2-3*d+3));
+    d:=Degree(f); assert d gt 1;
+    return ExactQuotient(tf_res([Derivative(f,Parent(f).i):i in [1..3]],d-1),-d^(d^2-3*d+3));
 end function;
 
 function min_disc(f:D:=tf_disc(f))
@@ -592,30 +594,6 @@ intrinsic MinimalDiscriminant(C::Crv) -> RngElt
     return d;
 end intrinsic;
 
-
-/*
-All EndomorphismDescription functions return a tuple <GeomEndR, EndFieldGalId, EndRecords> where
-
-  * GeomEndR is a lex-sorted list of pairs of integers [[m1,d1],[m2,d2],...] where [m,d] denotes M_m(D) and d=dim(D) (D is R,C,H).
-  * EndFieldGalId is the small group identifier of G=Gal(K/Q),K for which End(Jac(C_K)) = End(Jac(C_Qbar))
-  * EndRecords is a list of tuples, one for each subgroup H of G (up to conjugacy) ordered according to Magma subgroups ordering,
-    with the format <SubgroupId,FieldPoly,EndR,EndQ,EndZ,PicNum> where
-
-      - SubgroupId is the small group identifier of H
-      - FieldPoly is a list of integer coeffs of defining poly for the fixed field F of H
-      - EndR is a lex-sorted list of pairs of integers [[m,d],...] (same format as GeomEndR) describing End(Jac(C_F)) x R
-      - EndQ is a lex sorted list of tuples <m,dimD,[z0,..,zn],discD,dimA> describing factorization of End(Jac(C_F)xQ) = Prod B_i
-        into isotypic components B = M_m(D) with D a division algebra whose center Z is a number field
-          * m is the degree of the isotypic component B as a matrix algebra over D (i.e. B is an m x m matrix algebra)
-          * dimD is the Q-dimension of the division algebra D
-          * [z0,...,zn] is a list of integer coeffs of a defining poly for the number field Z (center of D)
-          * discD is the discriminant of D over Z (in general an O_Z-ideal, but for us a signed integer)
-          * dimA is the dimension of the simple subvariety of Jac(C_F) corresponding to B
-      - EndZ is a pair of integers [i,e] where i is the index of End(Jac(C_F)) in a maximal order of End(Jac(C_F)) x Q
-        and e is -1,0,1 with e=-1 if D is commutative and otherwise e=1 if EndZ is an Eichler order and 0 otherwise
-      - PicNum is the Picard number of Jac(C_F) (the Q-dimension of the subalgebra of EndQ fixed by the Rosati involution)
-*/
-
 intrinsic Genus3Curve(C::. : prec := 100 ) -> Crv
 { Given a list of polynomials (or their coefficients, or string representing such a list) over ZZ or QQ, returns a hyperelliptic, geometrically hyperelliptic, or nonhyperelliptic curve of genus 3 over RationalsExtra(prec) (prec:=100 by default). }
     QQ := Rationals();
@@ -779,44 +757,6 @@ end intrinsic;
 intrinsic PrymTraces(E::CrvEll,B::RngIntElt) -> SeqEnum
 { Returns traces of Frobenius of abelian surface Prym defined by a degree-2 cover of E up to the specified bound. }
     return PrymTraces(GenusOneModel(2,E),B);
-end intrinsic;
-
-intrinsic IsGenusOneCover(F::RngMPolElt) -> BoolElt
-{ True if F(x,y,z) = y^4 + y^2*h(x,z) + f(x,z) with h, f homogeneous of degree 2,4. }
-    R<x,y,z> := Parent(F);
-    M := Monomials(F);
-    return &and[Degree(m) eq 4 and y^4 in M and IsEven(Degree(m,y)):m in M];
-end intrinsic;
-
-intrinsic IsGenusOneCover(C::CrvPln) -> BoolElt
-{ True if F(x,y,z) = y^4 + y^2*h(x,z) + f(x,z) with h, f homogeneous of degree 2,4. }
-    return IsGenusOneCover(DefiningPolynomial(C));
-end intrinsic;
-
-intrinsic GenusOneBase(F::RngMPolElt) -> CrvHyp
-{ Given a smooth plane quartic F(x,y,z) = y^4 + h(x,z)y^2 - f(x,z) = 0, returns the genus one curve y^2 + h(x,z)y = f(x,z). }
-    require Rank(Parent(F)) eq 3 and Degree(F) eq 4: "Input polynomial should be a homogeneous quartic in three variables.";
-    R<x,y,z> := Parent(F);
-    M := Monomials(F);
-    require &and[Degree(m) eq 4 and y^4 in M and IsEven(Degree(m,y)):m in M]: "Plane quartic must be of they form  y^4 + h(x,z)y^2 - f(x,z).";
-    Fc := Coefficients(F);
-    i := Index(M,y^4);
-    if Fc[i] ne 1 then F := F / Fc[i]; Fc := Coefficients(F); end if;
-    h := &+[Parent(F)|Fc[i]*(M[i] div y^2):i in [1..#M]|Degree(M[i],y) eq 2];
-    f := - &+[Parent(F)|Fc[i]*M[i]:i in [1..#M]|Degree(M[i],y) eq 0];
-    assert y^4 + h*y^2 - f eq F;
-    R<X> := PolynomialRing(BaseRing(R));
-    return HyperellipticCurve(Evaluate(f,[X,0,1]),Evaluate(h,[X,0,1]));
-end intrinsic;
-
-intrinsic GenusOneBase(C::CrvPln) -> CrvHyp
-{ Given a smooth plane quartic y^4 + h(x,z)y^2 - f(x,z) = 0, returns the genus one curve y^2 + h(x,z)y = f(x,z). }
-    return GenusOneBase(DefiningPolynomial(C));
-end intrinsic;
-
-intrinsic GenusTwoPrym(F::RngMPolElt) -> Crvhyp
-{ Given a smooth plane quartic F(x,y,z) = y^4 + h(x,z)y^2 - f(x,z)*g(x,z) = 0, with deg(f)=deg(g)=2 attempts to compute a genus 2 curve whose Jacobian is isogenous to the Prym. }
-    require false: "Not yet implemented";
 end intrinsic;
 
 intrinsic GenusOneModel(a::Tup) -> ModelG1
